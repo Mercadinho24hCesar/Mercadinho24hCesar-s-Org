@@ -1,0 +1,5 @@
+{
+  "name": "Gestor de Compras - XML",
+  "description": "Ferramenta para gestão de compras através de arquivos XML de NF-e.",
+  "requestFramePermissions": []
+}
