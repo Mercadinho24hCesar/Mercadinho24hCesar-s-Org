@@ -11,13 +11,14 @@ import {
   AreaChart,
   Area
 } from 'recharts';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 
 export interface HistoryItem {
   data: string;
   fornecedor: string;
   quantidade: number;
   valorUnitario: number;
+  nNF?: string;
 }
 
 interface HistoryModalProps {
@@ -31,6 +32,16 @@ interface HistoryModalProps {
 
 export default function HistoryModal({ isOpen, onClose, productName, ean, history, currentPrice }: HistoryModalProps) {
   const [period, setPeriod] = useState<'30d' | '3m' | '1y'>('3m');
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => setIsReady(true), 300);
+      return () => clearTimeout(timer);
+    } else {
+      setIsReady(false);
+    }
+  }, [isOpen]);
 
   const filteredHistory = useMemo(() => {
     const now = new Date();
@@ -38,8 +49,8 @@ export default function HistoryModal({ isOpen, onClose, productName, ean, histor
     const cutoff = new Date(now.setDate(now.getDate() - days));
     
     return history
-      .filter(item => new Date(item.data) >= cutoff)
-      .sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
+      .filter(item => !isNaN(new Date(item.data).getTime()) && new Date(item.data) >= cutoff)
+      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
   }, [history, period]);
 
   const chartData = useMemo(() => {
@@ -158,50 +169,53 @@ export default function HistoryModal({ isOpen, onClose, productName, ean, histor
                 </div>
               </div>
 
-              <div className="h-64 md:h-80 w-full bg-gray-50 rounded-3xl border border-gray-100 p-4 md:p-6">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
-                        <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                    <XAxis 
-                      dataKey="date" 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
-                      dy={10}
-                    />
-                    <YAxis 
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
-                      tickFormatter={(value) => `R$ ${value}`}
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        borderRadius: '16px', 
-                        border: 'none', 
-                        boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
-                        padding: '12px'
-                      }}
-                      labelStyle={{ fontWeight: 800, color: '#4b5563', marginBottom: '4px' }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="price" 
-                      stroke="#6366f1" 
-                      strokeWidth={4}
-                      fillOpacity={1} 
-                      fill="url(#colorPrice)" 
-                      dot={{ r: 6, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }}
-                      activeDot={{ r: 8, strokeWidth: 0 }}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="h-[300px] w-full overflow-hidden bg-gray-50 rounded-3xl border border-gray-100 p-4 md:p-6">
+                {isReady && filteredHistory.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                      <XAxis 
+                        dataKey="date" 
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
+                        dy={10}
+                      />
+                      <YAxis 
+                        width={60}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fontSize: 10, fontWeight: 700, fill: '#9ca3af' }}
+                        tickFormatter={(value) => `R$ ${value}`}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          borderRadius: '16px', 
+                          border: 'none', 
+                          boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                          padding: '12px'
+                        }}
+                        labelStyle={{ fontWeight: 800, color: '#4b5563', marginBottom: '4px' }}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="price" 
+                        stroke="#6366f1" 
+                        strokeWidth={4}
+                        fillOpacity={1} 
+                        fill="url(#colorPrice)" 
+                        dot={{ r: 6, fill: '#6366f1', strokeWidth: 2, stroke: '#fff' }}
+                        activeDot={{ r: 8, strokeWidth: 0 }}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </section>
 
@@ -224,7 +238,7 @@ export default function HistoryModal({ isOpen, onClose, productName, ean, histor
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
-                    {history.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).map((item, idx) => {
+                    {history.filter(item => !isNaN(new Date(item.data).getTime())).sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).map((item, idx) => {
                       const variation = ((currentPrice - item.valorUnitario) / item.valorUnitario) * 100;
                       return (
                         <tr key={idx} className="hover:bg-gray-50/50 transition-colors">
@@ -261,7 +275,7 @@ export default function HistoryModal({ isOpen, onClose, productName, ean, histor
 
               {/* Mobile List */}
               <div className="md:hidden space-y-3">
-                {history.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).map((item, idx) => {
+                {history.filter(item => !isNaN(new Date(item.data).getTime())).sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime()).map((item, idx) => {
                   const variation = ((currentPrice - item.valorUnitario) / item.valorUnitario) * 100;
                   return (
                     <div key={idx} className="bg-gray-50 rounded-2xl p-4 border border-gray-100 space-y-3">
