@@ -49,7 +49,16 @@ export default function HistoryModal({ isOpen, onClose, productName, ean, histor
     const days = period === '30d' ? 30 : period === '3m' ? 90 : 365;
     const cutoff = new Date(now.setDate(now.getDate() - days));
     
-    return history
+    // Filtra duplicatas baseadas no nNF se disponível, caso contrário usa a chave composta
+    const uniqueHistory = new Map<string, HistoryItem>();
+    history.forEach(item => {
+      const key = item.nNF || `${item.data}-${item.fornecedor}-${item.valorUnitario}`;
+      if (!uniqueHistory.has(key)) {
+        uniqueHistory.set(key, item);
+      }
+    });
+
+    return Array.from(uniqueHistory.values())
       .filter(item => !isNaN(new Date(item.data).getTime()) && new Date(item.data) >= cutoff)
       .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
   }, [history, period]);

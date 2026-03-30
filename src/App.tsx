@@ -1,4 +1,6 @@
 import { useState, useRef, DragEvent, ChangeEvent, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
+import { toast, Toaster } from 'sonner';
 import { 
   Upload, 
   FileCode, 
@@ -23,7 +25,8 @@ import {
   Wallet,
   ChevronDown,
   ChevronUp,
-  Cloud
+  Cloud,
+  Table as TableIcon
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { createClient } from '@supabase/supabase-js';
@@ -31,6 +34,7 @@ import HistoryModal, { HistoryItem } from './components/HistoryModal';
 import CategoryModal from './components/CategoryModal';
 import SupplierModal, { SupplierInfo } from './components/SupplierModal';
 import DeleteConfirmationModal from './components/DeleteConfirmationModal';
+import { ProcessingModal } from './components/ProcessingModal';
 
 const error = console.error;
 console.error = (...args) => {
@@ -99,8 +103,12 @@ export default function App() {
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'checking' | 'synced' | 'error'>('checking');
+  const [isProcessingPlanograma, setIsProcessingPlanograma] = useState(false);
+  const [processProgress, setProcessProgress] = useState({ total: 0, current: 0, summary: null as any });
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const planogramInputRef = useRef<HTMLInputElement>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadFromCloud();
@@ -168,7 +176,8 @@ export default function App() {
             data: h.data,
             fornecedor: h.fornecedor,
             quantidade: h.quantidade,
-            valorUnitario: h.valor_unitario
+            valorUnitario: h.valor_unitario,
+            nNF: h.nnf
           });
         });
         setProductHistories(updated);
@@ -210,10 +219,11 @@ export default function App() {
         await supabase.from('historico_compras').upsert({
           ean: data.ean,
           data: data.data,
+          nnf: data.nNF,
           fornecedor: data.fornecedor,
           quantidade: data.quantidade,
           valor_unitario: data.valorUnitario
-        });
+        }, { onConflict: 'ean,data,nnf' });
       } else if (type === 'delete') {
         await supabase.from('produtos_consolidados').delete().eq('ean', data.ean);
         // Histórico é deletado em cascata no banco (conforme schema)
@@ -275,6 +285,92 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('smartstore_suppliers', JSON.stringify(suppliersData));
   }, [suppliersData]);
+
+  const handlePlanogramaImport = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsProcessingPlanograma(true);
+    setProcessProgress({ total: 0, current: 0, summary: null });
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const data = new Uint8Array(event.target?.result as ArrayBuffer);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const jsonData: any[] = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      
+      if (jsonData.length < 2) {
+        toast.error('Planilha vazia ou formato inválido.');
+        setIsProcessingPlanograma(false);
+        return;
+      }
+
+      const headers = jsonData[0].map((h: string) => 
+        h.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '')
+      );
+      const eanIndex = headers.findIndex((h: string) => 
+        ['codigodebarras', 'ean', 'barcode'].includes(h)
+      );
+      const vendaIndex = headers.findIndex((h: string) => 
+        ['venda', 'preco', 'precovenda'].includes(h)
+      );
+
+      if (eanIndex === -1 || vendaIndex === -1) {
+        toast.error('Não foi possível identificar as colunas de Código de Barras ou Preço de Venda.');
+        setIsProcessingPlanograma(false);
+        return;
+      }
+
+      const updatedProducts = [...consolidatedProducts];
+      let updatedCount = 0;
+      let notFoundCount = 0;
+      const totalItems = jsonData.length - 1;
+      setProcessProgress(prev => ({ ...prev, total: totalItems }));
+
+      // Helper to clean EAN
+      const cleanEan = (val: any) => String(val).trim().replace(/[.,\s]/g, '');
+
+      for (let i = 1; i < jsonData.length; i++) {
+        setProcessProgress(prev => ({ ...prev, current: i }));
+        const row = jsonData[i];
+        const rawEan = row[eanIndex];
+        const rawVenda = row[vendaIndex];
+
+        if (rawEan !== undefined && rawVenda !== undefined) {
+          const ean = cleanEan(rawEan);
+          const venda = parseFloat(String(rawVenda).replace(/[R$\s]/g, '').replace(',', '.'));
+
+          if (!isNaN(venda)) {
+            const productIndex = updatedProducts.findIndex(p => cleanEan(p.ean) === ean);
+            if (productIndex !== -1) {
+              const product = updatedProducts[productIndex];
+              let novoMarkup = product.markup;
+              if (product.custoMedio > 0) {
+                novoMarkup = parseFloat((((venda - product.custoMedio) / product.custoMedio) * 100).toFixed(2));
+              }
+              
+              const updatedProduct = { 
+                ...product, 
+                venda: venda,
+                markup: novoMarkup
+              };
+              updatedProducts[productIndex] = updatedProduct;
+              await saveToCloud('product', updatedProduct);
+              updatedCount++;
+            } else {
+              notFoundCount++;
+            }
+          }
+        }
+      }
+
+      setConsolidatedProducts(updatedProducts);
+      setProcessProgress(prev => ({ ...prev, summary: { updated: updatedCount, notFound: notFoundCount } }));
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   const finalizeValidation = (items: ProductToValidate[]) => {
     const updatedConsolidated = [...consolidatedProducts];
@@ -1263,12 +1359,20 @@ export default function App() {
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-3">
-                      <button 
-                        onClick={exportToCSV}
-                        className="flex-1 bg-white/10 hover:bg-white/20 px-3 py-2.5 rounded-xl font-bold text-xs transition-all border border-white/20 flex items-center justify-center gap-2"
+                      <button
+                        onClick={() => excelInputRef.current?.click()}
+                        className="flex-1 bg-green-600/20 hover:bg-green-600/30 px-3 py-2.5 rounded-xl font-bold text-xs transition-all border border-green-600/20 flex items-center justify-center gap-2 text-green-400"
                       >
-                        Exportar CSV
+                        <FileText className="w-4 h-4" />
+                        Importar Planograma (Excel)
                       </button>
+                      <input
+                        type="file"
+                        ref={excelInputRef}
+                        onChange={handlePlanogramaImport}
+                        accept=".xlsx, .xls"
+                        className="hidden"
+                      />
                       <button 
                         onClick={resetApp}
                         className="flex-1 bg-white text-brand-purple px-3 py-2.5 rounded-xl font-bold text-xs hover:bg-gray-100 transition-all shadow-lg flex items-center justify-center gap-2"
@@ -1327,6 +1431,8 @@ export default function App() {
 
                   {/* Toolbar */}
                   <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white/10 p-4 rounded-2xl border border-white/10">
+                    <div className="flex items-center gap-4">
+                    </div>
                     <div className="w-full md:w-64 shrink-0">
                       <select 
                         value={categoryFilter}
@@ -1352,6 +1458,29 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                <ProcessingModal 
+                  isOpen={isProcessingPlanograma}
+                  isSyncing={isSyncing}
+                  progress={processProgress.total > 0 ? (processProgress.current / processProgress.total) * 100 : 0}
+                  total={processProgress.total}
+                  current={processProgress.current}
+                  summary={processProgress.summary}
+                  onClose={() => setIsProcessingPlanograma(false)}
+                  onComplete={async () => {
+                    setIsSyncing(true);
+                    // Persist all changes
+                    for (const product of consolidatedProducts) {
+                      await supabase.from('produtos_consolidados').upsert(
+                        { ean: product.ean, venda: product.venda, markup: product.markup },
+                        { onConflict: 'ean' }
+                      );
+                    }
+                    await syncToCloud();
+                    setIsSyncing(false);
+                    setIsProcessingPlanograma(false);
+                    toast.success('Importação e sincronização concluídas!');
+                  }}
+                />
 
                 {/* Summary Content */}
                 <div className="p-0">
@@ -1661,6 +1790,7 @@ export default function App() {
           onConfirm={confirmDelete}
           productName={consolidatedProducts.find(p => p.ean === productToDelete)?.produto || ''}
         />
+        <Toaster />
       </main>
     </div>
   );
