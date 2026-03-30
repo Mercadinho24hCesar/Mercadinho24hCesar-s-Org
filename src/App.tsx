@@ -32,6 +32,12 @@ import CategoryModal from './components/CategoryModal';
 import SupplierModal, { SupplierInfo } from './components/SupplierModal';
 import DeleteConfirmationModal from './components/DeleteConfirmationModal';
 
+const error = console.error;
+console.error = (...args) => {
+  if (/defaultProps/.test(args[0]) || /width/.test(args[0])) return;
+  error(...args);
+};
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://zdcdsgpfoecfrkpjckuq.supabase.co';
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_8yKZ2HgBaTty9SmBAKXbjA_IOoeYjxe';
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -78,27 +84,15 @@ export default function App() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [productsToValidate, setProductsToValidate] = useState<ProductToValidate[]>([]);
   const [validatedProducts, setValidatedProducts] = useState<ProductToValidate[]>([]);
-  const [consolidatedProducts, setConsolidatedProducts] = useState<ConsolidatedProduct[]>(() => {
-    const saved = localStorage.getItem('smartstore_consolidated');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [consolidatedProducts, setConsolidatedProducts] = useState<ConsolidatedProduct[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ConsolidatedProduct | null>(null);
-  const [productHistories, setProductHistories] = useState<Record<string, HistoryItem[]>>(() => {
-    const saved = localStorage.getItem('smartstore_histories');
-    return saved ? JSON.parse(saved) : {};
-  });
-  const [categories, setCategories] = useState<string[]>(() => {
-    const saved = localStorage.getItem('smartstore_categories');
-    return saved ? JSON.parse(saved) : ['Sem Cat.', 'Bebidas', 'Mercearia', 'Higiene', 'Limpeza', 'Frios'];
-  });
+  const [productHistories, setProductHistories] = useState<Record<string, HistoryItem[]>>({});
+  const [categories, setCategories] = useState<string[]>(['Sem Cat.', 'Bebidas', 'Mercearia', 'Higiene', 'Limpeza', 'Frios']);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('Todas');
-  const [suppliersData, setSuppliersData] = useState<Record<string, SupplierInfo>>(() => {
-    const saved = localStorage.getItem('smartstore_suppliers');
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [suppliersData, setSuppliersData] = useState<Record<string, SupplierInfo>>({});
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
   const [isDashboardExpanded, setIsDashboardExpanded] = useState(true);
@@ -109,33 +103,7 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    // Reset Total de Dados
-    const resetDone = localStorage.getItem('smartstore_reset_done');
-    if (!resetDone) {
-      localStorage.clear();
-      setConsolidatedProducts([]);
-      setProductHistories({});
-      setSuppliersData({});
-      setCategories(['Sem Cat.', 'Bebidas', 'Mercearia', 'Higiene', 'Limpeza', 'Frios']);
-      localStorage.setItem('smartstore_reset_done', 'true');
-    }
-
-    if (consolidatedProducts.length > 0 && view === 'upload') {
-      setView('summary');
-    }
-    console.log("Tentando conectar ao Supabase em:", supabaseUrl);
     loadFromCloud();
-
-    // Verificação de Inicialização
-    const testConnection = async () => {
-      try {
-        await supabase.from('categorias').select('*', { count: 'exact', head: true });
-        console.log('✅ Supabase Conectado!');
-      } catch (err) {
-        console.error('❌ Erro no Supabase:', err);
-      }
-    };
-    testConnection();
   }, []);
 
   const loadFromCloud = async () => {
@@ -172,6 +140,7 @@ export default function App() {
       // Carregar produtos consolidados
       const { data: prods } = await supabase.from('produtos_consolidados').select('*');
       if (prods && prods.length > 0) {
+        console.log("Dados carregados do banco:", prods.length);
         const updated = prods.map(p => ({
           ean: p.ean,
           produto: p.produto,
@@ -187,7 +156,6 @@ export default function App() {
         setConsolidatedProducts(updated);
       } else {
         setConsolidatedProducts([]);
-        localStorage.removeItem('smartstore_consolidated');
       }
 
       // Carregar histórico
@@ -370,6 +338,8 @@ export default function App() {
     });
 
     setConsolidatedProducts(updatedConsolidated.sort((a, b) => b.subtotalTotal - a.subtotalTotal));
+    // Gatilho de Sincronização
+    syncToCloud();
     setProductHistories(updatedHistories);
     setView('summary');
     setValidatedProducts([]);
@@ -713,15 +683,15 @@ export default function App() {
   };
 
   // Gatilho automático de syncToCloud rodando silenciosamente no background
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      // Evita sincronizar se estiver vazio na inicialização
-      if (categories.length > 0 || consolidatedProducts.length > 0) {
-        syncToCloud();
-      }
-    }, 10000); // 10 segundos de debounce para não sobrecarregar
-    return () => clearTimeout(timeoutId);
-  }, [categories, consolidatedProducts, productHistories, suppliersData]);
+  // useEffect(() => {
+  //   const timeoutId = setTimeout(() => {
+  //     // Evita sincronizar se estiver vazio na inicialização
+  //     if (categories.length > 0 || consolidatedProducts.length > 0) {
+  //       syncToCloud();
+  //     }
+  //   }, 10000); // 10 segundos de debounce para não sobrecarregar
+  //   return () => clearTimeout(timeoutId);
+  // }, [categories, consolidatedProducts, productHistories, suppliersData]);
 
   const exportToCSV = () => {
     const headers = [
@@ -1350,7 +1320,7 @@ export default function App() {
                       </div>
                       <div className="bg-white/10 border border-white/20 rounded-2xl p-5 flex flex-col">
                         <span className="text-[10px] font-black uppercase tracking-widest opacity-60 mb-1">Arquivos Processados</span>
-                        <span className="text-3xl font-black">{files.length}</span>
+                        <span className="text-3xl font-black">{new Set((Object.values(productHistories) as HistoryItem[][]).flatMap(h => h.map(item => item.nNF))).size}</span>
                       </div>
                     </div>
                   </motion.div>
@@ -1655,6 +1625,7 @@ export default function App() {
             ean={selectedProduct.ean}
             history={productHistories[selectedProduct.ean] || []}
             currentPrice={selectedProduct.custoMedio}
+            isDashboardExpanded={isDashboardExpanded}
           />
         )}
 

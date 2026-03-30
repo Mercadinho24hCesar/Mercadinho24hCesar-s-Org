@@ -28,9 +28,10 @@ interface HistoryModalProps {
   ean: string;
   history: HistoryItem[];
   currentPrice: number;
+  isDashboardExpanded: boolean;
 }
 
-export default function HistoryModal({ isOpen, onClose, productName, ean, history, currentPrice }: HistoryModalProps) {
+export default function HistoryModal({ isOpen, onClose, productName, ean, history, currentPrice, isDashboardExpanded }: HistoryModalProps) {
   const [period, setPeriod] = useState<'30d' | '3m' | '1y'>('3m');
   const [isReady, setIsReady] = useState(false);
 
@@ -170,8 +171,8 @@ export default function HistoryModal({ isOpen, onClose, productName, ean, histor
               </div>
 
               <div className="h-[300px] w-full overflow-hidden bg-gray-50 rounded-3xl border border-gray-100 p-4 md:p-6">
-                {isReady && filteredHistory.length > 0 && (
-                  <ResponsiveContainer width="100%" height="100%">
+                {isDashboardExpanded && isReady && filteredHistory.length > 0 && (
+                  <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                     <AreaChart data={chartData}>
                       <defs>
                         <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
