@@ -96,6 +96,7 @@ export default function App() {
   const [categories, setCategories] = useState<string[]>(['Sem Cat.', 'Bebidas', 'Mercearia', 'Higiene', 'Limpeza', 'Frios']);
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('Todas');
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' } | null>(null);
   const [suppliersData, setSuppliersData] = useState<Record<string, SupplierInfo>>({});
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null);
@@ -1490,12 +1491,12 @@ export default function App() {
                       <thead>
                         <tr className="bg-gray-50 border-b border-gray-100">
                           <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-16">SEL</th>
-                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest w-auto">Produto / GTIN</th>
-                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest w-48">Categoria</th>
-                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-32">Custo</th>
-                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-32">Melhor</th>
-                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-28">Markup (%)</th>
-                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-40">Venda</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest w-auto cursor-pointer" onClick={() => setSortConfig({ key: 'produto', direction: sortConfig?.key === 'produto' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>Produto / GTIN</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest w-48 cursor-pointer" onClick={() => setSortConfig({ key: 'categoria', direction: sortConfig?.key === 'categoria' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>Categoria</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-32 cursor-pointer" onClick={() => setSortConfig({ key: 'custoMedio', direction: sortConfig?.key === 'custoMedio' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>Custo</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-32 cursor-pointer" onClick={() => setSortConfig({ key: 'melhorPreco', direction: sortConfig?.key === 'melhorPreco' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>Melhor</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-28 cursor-pointer" onClick={() => setSortConfig({ key: 'markup', direction: sortConfig?.key === 'markup' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>Markup (%)</th>
+                          <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right w-40 cursor-pointer" onClick={() => setSortConfig({ key: 'venda', direction: sortConfig?.key === 'venda' && sortConfig.direction === 'desc' ? 'asc' : 'desc' })}>Venda</th>
                           <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-16">Hist.</th>
                           <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-16">Ações</th>
                         </tr>
@@ -1513,6 +1514,15 @@ export default function App() {
                               const matchesSearch = p.produto.toLowerCase().includes(searchTerm.toLowerCase()) || p.ean.includes(searchTerm);
                               const matchesCategory = categoryFilter === 'Todas' || p.categoria === categoryFilter;
                               return matchesSearch && matchesCategory;
+                            })
+                            .sort((a, b) => {
+                              if (!sortConfig) return 0;
+                              const { key, direction } = sortConfig;
+                              const aValue = (a as any)[key];
+                              const bValue = (b as any)[key];
+                              if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+                              if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+                              return 0;
                             })
                             .map((item) => (
                               <tr key={item.ean} className={`hover:bg-gray-50/50 transition-colors ${item.selecionado ? 'bg-brand-purple/5' : ''}`}>
